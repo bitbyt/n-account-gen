@@ -4,27 +4,8 @@ const axios = require('axios');
 const faker = require('faker');
 const fs = require('fs');
 
+const config = require('./config.js');
 const proxiesList = require('./proxiesList.json');
-
-const nikeRegionURL = 'https://www.nike.com/gb';
-const smsGenConfig = {
-    url: 'https://public.sms-gen.com',
-    apiKey: 'nlpte6h7lSVfW6vDhhImtPy4coW490ni',
-    country: 'GB',
-    channels: [
-        2,3,6,7
-    ]
-}
-
-const userDeets = {
-    emailAddress: 'alexisyeo44562@dnnklls.com',
-    firstName: 'Jane',
-    lastName: 'Doe',
-    password: 'Password123',
-    dateOfBirth: '12/05/1996'
-};
-
-const maxTries = 20;
 
 let createdAccounts = []
 
@@ -82,42 +63,37 @@ const preparePageForTests = async (page) => {
     });
 };
 
-const addNumber = async (page, browser) => {
+const addNumber = async (page, browser, user) => {
     // get a new number
-    const newNumber = await getNumber(page, browser, 2);
+    const newNumber = await getNumber(page, browser, user, 2);
     return newNumber;
 };
 
-const getNumber = async (page, browser, channel) => {
-    // if (channel === (smsGenConfig.channels[smsGenConfig.channels.length - 1] + 1)) {
-    //     await browser.close();
-    // }
-    const currentChannel = smsGenConfig.channels[channel];
+const getNumber = async (page, browser, user, channel) => {
+    const currentChannel = config.smsGenConfig.channels[channel];
     console.log("getting number on channel ", currentChannel);
     if (currentChannel) {
         try {
-            const response = await axios.get(smsGenConfig.url + "/v1/sms/number", {
+            const response = await axios.get(config.smsGenConfig.url + "/v1/sms/number", {
                 params: {
-                    country: smsGenConfig.country,
+                    country: config.smsGenConfig.country,
                     service: 'nike',
                     channel: currentChannel.toString(),
-                    apikey: smsGenConfig.apiKey
+                    apikey: config.smsGenConfig.apiKey
                 }
             });
-            // console.log(response);
             if (!response.data.number) {
-                // alert(response.data.error); 
                 console.log('Status ', response.data);
                 await sleep(2000);
-                await getNumber(page, browser, channel + 1);
+                await getNumber(page, browser, user, channel + 1);
                 // debugger;
             } else {
                 console.log('Success status ', [response.data.status, response.data]);
-                await page.type('.phoneNumber', response.data.number.substring(2));
+                await page.type('.phoneNumber', response.data.number.substring(config.substringNumber));
                 await page.click('.sendCodeButton');
                 await page.waitForTimeout(500);
                 // get and update code
-                await getCode(page, browser, response.data.id, maxTries);
+                await getCode(page, browser, user, response.data.id, config.smsGenConfig.maxCodeTries);
                 return response;
             }
         } catch (error) {
@@ -129,7 +105,7 @@ const getNumber = async (page, browser, channel) => {
     }
 };
 
-const getCode = async (page, browser, numberId, count) => {
+const getCode = async (page, browser, user, numberId, count) => {
     if (count === 0) {
         console.log("Max attempts reached, please try again.")
         await browser.close();
@@ -137,16 +113,16 @@ const getCode = async (page, browser, numberId, count) => {
     } else {
         console.log(`getting code for id ${numberId}. Attempts left: ${count}`);
         try {
-            const response = await axios.get(smsGenConfig.url + "/v1/sms/code", {
+            const response = await axios.get(config.smsGenConfig.url + "/v1/sms/code", {
                 params: {
                     id: numberId,
-                    apikey: smsGenConfig.apiKey
+                    apikey: config.smsGenConfig.apiKey
                 }
             }); 
             if (response.data.isError || (response.data.retry && !response.data.isError)) {
                 console.log('Retrying: ', response.data); 
                 await sleep(3000);
-                await getCode(page, browser, numberId, count - 1);
+                await getCode(page, browser, user, numberId, count - 1);
                 // debugger;
             } else {
                 console.log('Success ', response.data);
@@ -157,8 +133,8 @@ const getCode = async (page, browser, numberId, count) => {
                 await page.evaluate(() => document.querySelector('.nike-unite-submit-button').firstElementChild.click());
 
                 // Return account details 
-                console.log('Account creation success! ' + userDeets.emailAddress + ':' + userDeets.password);
-                createdAccounts.push(userDeets.emailAddress + ':' + userDeets.password);
+                console.log('Account creation success! ' + user.emailAddress + ':' + user.password);
+                createdAccounts.push(user.emailAddress + ':' + user.password);
                 await browser.close();
                 return response;
             } 
@@ -168,11 +144,13 @@ const getCode = async (page, browser, numberId, count) => {
     }
 };
 
-const generateUser = async (user) => {
+const generateUser = async () => {
+    let user = {};
     user.firstName = faker.name.firstName();
     user.lastName = faker.name.lastName();
     user.password = faker.internet.password() + '1';
     user.emailAddress = (user.firstName + user.lastName + faker.random.number() + '@dnnklls.com').toLowerCase();
+    user.dateOfBirth = '12/05/1996';
     console.log('generated new user ', user);
 
     return user;
@@ -193,7 +171,7 @@ const accountCreator = async () => {
 
     // await useProxy(page, proxy);
     await preparePageForTests(page);
-    const newUser =  await generateUser(userDeets);
+    const newUser =  await generateUser();
 
     // const proxyCheck = await useProxy.lookup(page);
     // console.log('ip address', proxyCheck.ip);
@@ -203,7 +181,7 @@ const accountCreator = async () => {
         height: 1080,
         deviceScaleFactor: 1,
     });
-    await page.goto(`${nikeRegionURL}/register`);
+    await page.goto(`${config.nikeRegionURL}/register`);
 
     await page.waitForSelector('input[name=emailAddress]');
     await page.waitForTimeout(500);
@@ -239,51 +217,37 @@ const accountCreator = async () => {
 
     await page.waitForNavigation();
     console.log('New Page URL:', page.url());
-    await page.goto(`${nikeRegionURL}/member/settings`);
+    await page.goto(`${config.nikeRegionURL}/member/settings`);
     await page.waitForSelector('.account-form');
     await page.evaluate(() => document.querySelector('button[aria-label="Add Mobile Number"]').firstElementChild.click());
-    await addNumber(page, browser); 
+    await addNumber(page, browser, newUser); 
     return
 };
 
 (async () => {
-    const queueAttempts = 5;
     const timeBetween = [46000, 60000, 73000, 51000];
-
-    // for (i = 0; i < queueAttempts; i++) {
-    //     console.log('Attempt #', i + 1);
-    //     await accountCreator();
-    //     if (i === 0) {
-    //         console.log("Accounts created, saving into file.")
-    //         var accountsList = JSON.stringify(createdAccounts);
-    //         console.log(accountsList);
-            
-    //         fs.writeFile(`accounts_${Date.now()}.json`, accountsList, 'utf8', function (err) {
-    //             if (err) {
-    //                 console.log("An error occured while writing JSON Object to File.");
-    //                 return console.log(err);
-    //             }
-            
-    //             console.log("JSON file has been saved.");
-    //         });
-    //     }
-    //     await sleep(timeBetween[Math.floor(Math.random() * timeBetween.length)]);
-    // }
-    while (queueAttempts - (createdAccounts.length)) {
+    console.log('config  ', config)
+    while (config.accountsToGenerate - (createdAccounts.length)) {
         console.log('Attempting to create account');
         await accountCreator();
-        await sleep(timeBetween[Math.floor(Math.random() * timeBetween.length)]);
-        console.log("Accounts created: ", createdAccounts)
-    }
-    var accountsList = JSON.stringify(createdAccounts);
-    console.log(accountsList);
-    
-    fs.writeFile(`accounts_${Date.now()}.json`, accountsList, 'utf8', function (err) {
-        if (err) {
-            console.log("An error occured while writing JSON Object to File.");
-            return console.log(err);
+        console.log("Accounts created: ", createdAccounts);
+        if ((config.accountsToGenerate - (createdAccounts.length)) >= 0) {
+            await sleep(timeBetween[Math.floor(Math.random() * timeBetween.length)]);
         }
-    
-        console.log("JSON file has been saved.");
-    });
+    }
+    if (createdAccounts) {
+        var accountsList = JSON.stringify(createdAccounts);
+        console.log(accountsList);
+        
+        fs.writeFile(`accounts_${Date.now()}.json`, accountsList, 'utf8', function (err) {
+            if (err) {
+                console.log("An error occured while writing JSON Object to File.");
+                return console.log(err);
+            }
+        
+            console.log("JSON file has been saved.");
+        });
+    } else {
+        console.log("No accounts created, please try again.")
+    }
 })();
