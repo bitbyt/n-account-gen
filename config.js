@@ -9,6 +9,7 @@ module.exports = {
             1, 3, 4, 7
         ],
         startingChannel: 0,
+        maxChannelTries: 5,
         maxCodeTries: 20
     },
     substringNumber: 1
