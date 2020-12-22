@@ -71,7 +71,7 @@ const addNumber = async (page, browser, user) => {
 
 const getNumber = async (page, browser, user, channel) => {
     const currentChannel = config.smsGenConfig.channels[channel];
-    console.log("getting number on channel ", currentChannel);
+    console.log("Getting number on channel ", currentChannel);
     if (currentChannel) {
         try {
             const response = await axios.get(config.smsGenConfig.url + "/v1/sms/number", {
@@ -97,10 +97,10 @@ const getNumber = async (page, browser, user, channel) => {
                 return response;
             }
         } catch (error) {
-            console.log(error); 
+            console.log(error);
         }
     } else {
-        console.log("No channels available"); 
+        console.log("No channels available");
         await browser.close();
     }
 };
@@ -118,15 +118,15 @@ const getCode = async (page, browser, user, numberId, count) => {
                     id: numberId,
                     apikey: config.smsGenConfig.apiKey
                 }
-            }); 
+            });
             if (response.data.isError || (response.data.retry && !response.data.isError)) {
-                console.log('Retrying: ', response.data); 
+                console.log('Retrying: ', response.data);
                 await sleep(3000);
                 await getCode(page, browser, user, numberId, count - 1);
                 // debugger;
             } else {
                 console.log('Success ', response.data);
-                
+
                 await page.type('input.code', response.data.sms);
                 // save and close pop up 
                 await page.click('.nike-unite-checkbox');
@@ -137,14 +137,15 @@ const getCode = async (page, browser, user, numberId, count) => {
                 createdAccounts.push(user.emailAddress + ':' + user.password);
                 await browser.close();
                 return response;
-            } 
+            }
         } catch (error) {
-            console.log(error); 
+            console.log(error);
         }
     }
 };
 
 const generateUser = async () => {
+    console.log('Generating new user...', "color: grey");
     let user = {};
     user.firstName = faker.name.firstName();
     user.lastName = faker.name.lastName();
@@ -156,11 +157,12 @@ const generateUser = async () => {
     return user;
 }
 
-const accountCreator = async () => {
+const accountCreator = async (user) => {
     const proxy = proxiesList[Math.floor(Math.random() * proxiesList.length)];
     const browser = await puppeteer.launch({
         args: [
-            '--disable-web-security'
+            '--disable-web-security',
+            `--proxy-server=${proxy}`
         ],
         headless: false,
         devtools: true
@@ -171,7 +173,6 @@ const accountCreator = async () => {
 
     // await useProxy(page, proxy);
     await preparePageForTests(page);
-    const newUser =  await generateUser();
 
     // const proxyCheck = await useProxy.lookup(page);
     // console.log('ip address', proxyCheck.ip);
@@ -188,25 +189,25 @@ const accountCreator = async () => {
 
     // Key in user details
     await page.focus('input[name=emailAddress]')
-    await page.keyboard.type(newUser.emailAddress);
+    await page.keyboard.type(user.emailAddress);
     await page.waitForTimeout(200);
 
     await page.focus('input[name=password]')
-    await page.keyboard.type(newUser.password);
+    await page.keyboard.type(user.password);
     await page.waitForTimeout(200);
 
     await page.focus('input[name=firstName]')
-    await page.keyboard.type(newUser.firstName);
+    await page.keyboard.type(user.firstName);
     await page.waitForTimeout(200);
 
 
     await page.focus('input[name=lastName]')
-    await page.keyboard.type(newUser.lastName);
+    await page.keyboard.type(user.lastName);
     await page.waitForTimeout(200);
 
 
     await page.focus('input[name=dateOfBirth]')
-    await page.keyboard.type(newUser.dateOfBirth);
+    await page.keyboard.type(user.dateOfBirth);
     await page.waitForTimeout(200);
 
     await page.evaluate(() => document.querySelector('ul[data-componentname="gender"]').firstElementChild.click());
@@ -214,13 +215,33 @@ const accountCreator = async () => {
 
     // Submit sign up form
     await page.evaluate(() => document.querySelector('div.joinSubmit').firstElementChild.click());
+    // await page.waitForSelector('#nike-unite-error-view .nike-unite-error-panel');
+
+    await page.exposeFunction('puppeteerLogMutation', async () => {
+        console.log('Account creation failed. IP has been blocked.');
+        await browser.close();
+        return
+    });
+
+    await page.evaluate(() => {
+        const target = document.querySelector('#nike-unite-error-view');
+        const observer = new MutationObserver(mutations => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    puppeteerLogMutation();
+                }
+            }
+        });
+        observer.observe(target, { childList: true });
+    });
+    await page.setDefaultNavigationTimeout(60000);
 
     await page.waitForNavigation();
     console.log('New Page URL:', page.url());
     await page.goto(`${config.nikeRegionURL}/member/settings`);
     await page.waitForSelector('.account-form');
     await page.evaluate(() => document.querySelector('button[aria-label="Add Mobile Number"]').firstElementChild.click());
-    await addNumber(page, browser, newUser); 
+    await addNumber(page, browser, user);
     return
 };
 
@@ -228,8 +249,9 @@ const accountCreator = async () => {
     const timeBetween = [46000, 60000, 73000, 51000];
     console.log('config  ', config)
     while (config.accountsToGenerate - (createdAccounts.length)) {
-        console.log('Attempting to create account');
-        await accountCreator();
+        const newUser = await generateUser();
+        console.log('Attempting to create account for user ', newUser);
+        await accountCreator(newUser);
         console.log("Accounts created: ", createdAccounts);
         if ((config.accountsToGenerate - (createdAccounts.length)) >= 0) {
             await sleep(timeBetween[Math.floor(Math.random() * timeBetween.length)]);
@@ -238,13 +260,13 @@ const accountCreator = async () => {
     if (createdAccounts) {
         var accountsList = JSON.stringify(createdAccounts);
         console.log(accountsList);
-        
+
         fs.writeFile(`accounts_${Date.now()}.json`, accountsList, 'utf8', function (err) {
             if (err) {
                 console.log("An error occured while writing JSON Object to File.");
                 return console.log(err);
             }
-        
+
             console.log("JSON file has been saved.");
         });
     } else {
